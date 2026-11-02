@@ -93,13 +93,21 @@ async function gemini({ system, contents, json = false, temperature = 0.6 }) {
   const body = { contents, generationConfig: { temperature } };
   if (system) body.systemInstruction = { parts: [{ text: system }] };
   if (json) body.generationConfig.responseMimeType = 'application/json';
-  let res;
-  try {
-    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(getModel())}:generateContent`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body) });
-  } catch (e) { throw new Error('Could not reach Gemini. Check your internet connection.'); }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data.error && data.error.message) || `Gemini error ${res.status}`);
+  const models = [getModel(), 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash'];
+  let res, data = {}, lastErr = null;
+  for (let i = 0; i < models.length * 2; i++) {
+    const model = models[i % models.length];
+    try {
+      res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body) });
+    } catch (e) { lastErr = new Error('Could not reach Gemini. Check your internet connection.'); await new Promise(r => setTimeout(r, 1000)); continue; }
+    data = await res.json().catch(() => ({}));
+    if (res.ok) { lastErr = null; break; }
+    lastErr = new Error((data.error && data.error.message) || `Gemini error ${res.status}`);
+    if (![429, 500, 503, 404].includes(res.status)) break;  // real errors (bad key etc.) are not retried
+    await new Promise(r => setTimeout(r, 800 + i * 700));
+  }
+  if (lastErr) throw lastErr;
   const c = data.candidates && data.candidates[0];
   const text = c && c.content && c.content.parts ? c.content.parts.map(p => p.text || '').join('') : '';
   if (!text) throw new Error(data.promptFeedback && data.promptFeedback.blockReason ? 'Gemini blocked this request.' : 'Gemini returned an empty answer.');
