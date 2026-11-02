@@ -103,12 +103,17 @@ async function gemini({ system, contents, json = false, temperature = 0.6 }) {
   if (json) body.generationConfig.responseMimeType = 'application/json';
   const models = [getModel(), 'gemini-flash-lite-latest', 'gemini-2.5-flash-lite', 'gemini-2.5-flash'];
   let res, data = {}, lastErr = null;
-  for (let i = 0; i < models.length * 2; i++) {
+  let noThink = false;
+  for (let i = 0; i < models.length + 2; i++) {
     const model = models[i % models.length];
+    const b2 = JSON.parse(JSON.stringify(body));
+    if (!noThink) b2.generationConfig.thinkingConfig = /2\.5/.test(model) ? { thinkingBudget: 0 } : { thinkingLevel: 'minimal' };  // fast answers, no long "thinking"
+    const ac = new AbortController(), to = setTimeout(() => ac.abort(), 30000);
     try {
       res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-        { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(body) });
-    } catch (e) { lastErr = new Error('Could not reach Gemini. Check your internet connection.'); await new Promise(r => setTimeout(r, 1000)); continue; }
+        { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body: JSON.stringify(b2), signal: ac.signal });
+      clearTimeout(to);
+    } catch (e) { clearTimeout(to); lastErr = new Error('Could not reach Gemini. Check your internet connection.'); await new Promise(r => setTimeout(r, 1000)); continue; }
     data = await res.json().catch(() => ({}));
     if (res.ok) {
       const cc = data.candidates && data.candidates[0];
@@ -119,8 +124,9 @@ async function gemini({ system, contents, json = false, temperature = 0.6 }) {
       lastErr = new Error('Gemini returned an unexpected format. Please try again.'); continue;  // retry on next model
     }
     lastErr = new Error((data.error && data.error.message) || `Gemini error ${res.status}`);
+    if (res.status === 400 && !noThink && /think/i.test(lastErr.message)) { noThink = true; i--; continue; }  // model doesn't accept thinking setting
     if (![429, 500, 503, 404].includes(res.status)) break;  // real errors (bad key etc.) are not retried
-    await new Promise(r => setTimeout(r, 800 + i * 700));
+    await new Promise(r => setTimeout(r, 500));
   }
   if (lastErr) throw lastErr;
   const c = data.candidates && data.candidates[0];
