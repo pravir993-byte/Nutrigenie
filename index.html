@@ -27,7 +27,7 @@ const FB_CFG = {
   appId: "1:644810316053:web:aa531fc435469e3e2c311c"
 };
 // Gemini runs through Firebase AI Logic: no API key in this file (the key is held by Firebase).
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-3.5-flash-lite';
 const DB_ROOT = 'nutrigenie/users';         // separate from your study planner data
 
 /* ───────── helpers ───────── */
@@ -100,7 +100,7 @@ function parseLooseJson(t) {
 }
 async function gemini({ system, contents, json = false, temperature = 0.6 }) {
   if (!aiSvc) throw new NoKey('AI not available');
-  const models = [getModel(), 'gemini-2.5-flash-lite', 'gemini-flash-latest', 'gemini-2.5-flash'];
+  const models = [getModel(), 'gemini-3.5-flash', 'gemini-flash-lite-latest', 'gemini-flash-latest'];
   let lastErr = null, noThink = false;
   for (let i = 0; i < models.length + 2; i++) {
     const name = models[i % models.length];
